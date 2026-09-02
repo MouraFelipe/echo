@@ -479,8 +479,15 @@ class TranscriberApp(tk.Tk):
 
 
 def main() -> None:
+    import multiprocessing
+
+    multiprocessing.freeze_support()
+
     def _hook(args: threading.ExceptHookArgs) -> None:
-        sys.stderr.write(f"thread {args.thread}: {args.exc_type.__name__}: {args.exc_value}\n")
+        err = sys.stderr
+        if err is None:
+            return
+        err.write(f"thread {args.thread}: {args.exc_type.__name__}: {args.exc_value}\n")
 
     threading.excepthook = _hook
     app = TranscriberApp()

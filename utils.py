@@ -147,10 +147,16 @@ def default_loopback_device(devices: list[LoopbackDevice] | None = None) -> Loop
     return devices[0]
 
 
+def app_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path.cwd()
+
+
 def save_transcript(text: str, path: Path | None = None) -> Path:
     if path is None:
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        path = Path.cwd() / "transcripts" / f"transcricao_{stamp}.txt"
+        path = app_dir() / "transcripts" / f"transcricao_{stamp}.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.rstrip() + "\n", encoding="utf-8-sig")
     return path

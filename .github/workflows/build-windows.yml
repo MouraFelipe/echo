@@ -1,0 +1,64 @@
+name: Build Voxa.exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller==6.11.1
+
+      - name: Empacotar Voxa.exe
+        run: pyinstaller --noconfirm --clean voxa.spec
+
+      - name: Conferir o binário
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/Voxa.exe)) { throw "dist/Voxa.exe não foi gerado" }
+          Get-Item dist/Voxa.exe | Select-Object Name, Length, LastWriteTime
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Voxa-windows
+          path: dist/Voxa.exe
+          if-no-files-found: error
+
+      - name: Publicar release Voxa.exe
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release view exe >/dev/null 2>&1 && gh release delete exe --yes || true
+          git push origin :refs/tags/exe || true
+          gh release create exe dist/Voxa.exe \
+            --title "Voxa.exe" \
+            --latest \
+            --notes "$(cat <<'EOF'
+          Baixe **Voxa.exe** e dê dois cliques. Não precisa instalar Python.
+
+          - Windows 10/11 64-bit
+          - Primeira execução baixa o modelo Whisper (~150 MB). Depois fica offline.
+          - Se o Windows pedir, instale o [Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+          - O SmartScreen pode avisar (app sem certificado). *Mais informações → Executar mesmo assim*.
+
+          Download direto: `https://github.com/MouraFelipe/audio-transcriber/releases/latest/download/Voxa.exe`
+          EOF
+          )"
