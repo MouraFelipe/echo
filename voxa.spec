@@ -11,6 +11,7 @@ hiddenimports = [
     "audio_capture",
     "transcriber",
     "utils",
+    "assistant",
     "pyaudiowpatch",
     "numpy",
     "scipy",

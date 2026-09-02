@@ -33,6 +33,18 @@ pyinstaller --noconfirm --clean voxa.spec
 # sai em dist\Voxa.exe
 ```
 
+## Assistente (grátis)
+
+Depois de transcrever:
+
+- **Resumir** — bullets do que foi dito
+- **Tarefas** — combinados / prazos
+- **Perguntar** — responde só com base no texto
+
+No `.exe` isso é **100% local e gratuito**. Se o [Ollama](https://ollama.com) estiver aberto neste PC, o Voxa usa o modelo instalado. Senão, entra um resumidor extrativo (sem nuvem, sem chave).
+
+O preview na web usa Grok só quando você clica — não roda sozinho.
+
 ## Uso
 
 1. **Diagnosticar** — lista só dispositivos **loopback**, nunca o microfone.

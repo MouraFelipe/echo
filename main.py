@@ -12,6 +12,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from audio_capture import CaptureError, capture_loop
+from assistant import AssistantError, run_assistant
 from transcriber import (
     SUPPORTED_LANGUAGES,
     SUPPORTED_MODELS,
@@ -51,8 +52,8 @@ class TranscriberApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("920x640")
-        self.minsize(760, 540)
+        self.geometry("920x760")
+        self.minsize(760, 620)
         self.configure(bg=BG)
 
         self._events: queue.Queue[tuple] = queue.Queue()
@@ -201,8 +202,48 @@ class TranscriberApp(tk.Tk):
         self._set_placeholder(
             "1. Clique em Diagnosticar e escolha o loopback (não o microfone).\n"
             "2. Iniciar. Reproduza um vídeo — o app captura o que o Windows está tocando.\n"
-            "3. Áudio nativo → mono → 16 kHz → faster-whisper. Dedup por timestamp de palavra."
+            "3. Depois use Resumir / Tarefas / Perguntar — assistente local, sem nuvem."
         )
+
+        assist = ttk.Frame(outer)
+        assist.pack(fill=tk.X, pady=(10, 0))
+        ttk.Label(assist, text="Assistente (local / Ollama se existir)", style="Muted.TLabel").pack(
+            side=tk.LEFT
+        )
+        ttk.Button(assist, text="Resumir", style="Ghost.TButton", command=lambda: self._ask_ai("resumo")).pack(
+            side=tk.RIGHT
+        )
+        ttk.Button(assist, text="Tarefas", style="Ghost.TButton", command=lambda: self._ask_ai("tarefas")).pack(
+            side=tk.RIGHT, padx=(0, 8)
+        )
+
+        ask_row = ttk.Frame(outer)
+        ask_row.pack(fill=tk.X, pady=(8, 0))
+        self.ask_var = tk.StringVar()
+        self.ask_entry = ttk.Entry(ask_row, textvariable=self.ask_var)
+        self.ask_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.ask_entry.bind("<Return>", lambda _e: self._ask_ai("pergunta"))
+        ttk.Button(ask_row, text="Perguntar", style="Ghost.TButton", command=lambda: self._ask_ai("pergunta")).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+
+        assist_card = tk.Frame(outer, bg=SURFACE, highlightbackground=LINE, highlightthickness=1)
+        assist_card.pack(fill=tk.X, pady=(8, 0))
+        self.assist_text = tk.Text(
+            assist_card,
+            wrap=tk.WORD,
+            bg=SURFACE,
+            fg=FG,
+            height=7,
+            relief=tk.FLAT,
+            padx=14,
+            pady=10,
+            font=("Segoe UI", 10),
+            state=tk.DISABLED,
+            highlightthickness=0,
+        )
+        self.assist_text.pack(fill=tk.X)
+        self._set_assist("O assistente é gratuito e local. Se o Ollama estiver aberto neste PC, ele entra no lugar do resumidor.")
 
         footer = ttk.Frame(outer)
         footer.pack(fill=tk.X, pady=(12, 0))
@@ -357,6 +398,29 @@ class TranscriberApp(tk.Tk):
             return
         self._set_status(f"Salvo em {saved}")
 
+    def _ask_ai(self, task: str) -> None:
+        body = "\n".join(self._lines).strip()
+        question = self.ask_var.get().strip()
+        self._set_assist("Pensando…")
+        self._set_status("Assistente trabalhando…")
+
+        def worker() -> None:
+            try:
+                text = run_assistant(task, body, question)
+                self._events.put(("assist", text))
+            except AssistantError as exc:
+                self._events.put(("assist_error", str(exc)))
+            except Exception as exc:
+                self._events.put(("assist_error", f"Falha no assistente: {exc}"))
+
+        threading.Thread(target=worker, name="voxa-assistant", daemon=True).start()
+
+    def _set_assist(self, text: str, error: bool = False) -> None:
+        self.assist_text.configure(state=tk.NORMAL)
+        self.assist_text.delete("1.0", tk.END)
+        self.assist_text.insert("1.0", text)
+        self.assist_text.configure(fg=DANGER if error else FG, state=tk.DISABLED)
+
     def _on_close(self) -> None:
         self._running = False
         self._stop_event.set()
@@ -419,6 +483,12 @@ class TranscriberApp(tk.Tk):
                     self._busy_model = False
                     if not self._running:
                         self._set_buttons(active=False)
+                elif kind == "assist":
+                    self._set_assist(str(payload))
+                    self._set_status("Assistente pronto")
+                elif kind == "assist_error":
+                    self._set_assist(str(payload), error=True)
+                    self._set_status(str(payload), error=True)
                 elif kind == "error":
                     self._running = False
                     self._busy_model = False
