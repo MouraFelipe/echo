@@ -37,6 +37,13 @@ class AssistantError(RuntimeError):
     """Falha recuperável — a UI mostra, o app não fecha."""
 
 
+def reset_ollama_probe() -> None:
+    """Zera o cache do probe — só para testes e se o Ollama subir depois do 1º clique."""
+    global _ollama_ready, _ollama_model
+    _ollama_ready = None
+    _ollama_model = None
+
+
 def run_assistant(task: str, transcript: str, question: str = "") -> str:
     body = _plain(transcript)
     if len(body) < 40:

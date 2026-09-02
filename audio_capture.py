@@ -68,6 +68,7 @@ class AudioCapture:
         needed = max(1, int(round(duration * native_sr)))
         chunks: list[np.ndarray] = []
         collected = 0
+        empty_reads = 0
 
         while collected < needed and not self._stop.is_set():
             frames = min(FRAMES_PER_BUFFER, needed - collected)
@@ -80,7 +81,11 @@ class AudioCapture:
                 ) from exc
             block = int16_to_float32(raw, self.device.channels)
             if block.size == 0:
+                empty_reads += 1
+                if empty_reads >= 8:
+                    break
                 continue
+            empty_reads = 0
             chunks.append(block)
             collected += block.size
 
@@ -131,12 +136,13 @@ def capture_loop(
     on_chunk: Callable[[np.ndarray, bool, float], None],
     on_error: Callable[[str], None],
     on_level: Callable[[float], None] | None = None,
+    capture_cls: type[AudioCapture] = AudioCapture,
 ) -> None:
     """
     Primeiro chunk: 6 s. Seguintes: 4,5 s novos + cauda de 1,5 s (sobreposição).
     Cada array entregue já está em 16 kHz mono.
     """
-    capture = AudioCapture(device, stop_event=stop_event)
+    capture = capture_cls(device, stop_event=stop_event)
     try:
         capture.start()
         tail = np.zeros(0, dtype=np.float32)
