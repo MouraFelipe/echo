@@ -1,15 +1,15 @@
 # Voxa — transcritor de áudio de sistema (Windows)
 
-MVP desktop que captura o que o **Windows está reproduzindo** (WASAPI loopback), transcreve **localmente** com `faster-whisper` e mostra o texto em tempo real.
+MVP desktop que captura o que o **Windows está reproduzindo** (WASAPI loopback via **PyAudioWPatch**), reamostra para **16 kHz mono** e transcreve **localmente** com `faster-whisper`.
 
-Não usa microfone. Não envia áudio para Google, Azure ou qualquer API online.
+Não usa microfone. Nenhuma API de transcrição online. O único acesso à rede é o **download único** dos pesos do modelo na primeira execução; daí em diante `local_files_only=True`.
 
 ```text
 audio_transcriber/
-├── main.py              (Interface tkinter e fluxo principal)
-├── audio_capture.py     (WASAPI loopback via sounddevice)
-├── transcriber.py       (faster-whisper em thread)
-├── utils.py             (tempo, resample, salvar)
+├── main.py              (tkinter + threads)
+├── audio_capture.py     (loopback + downmix + resample 16 kHz)
+├── transcriber.py       (faster-whisper + dedup por timestamp)
+├── utils.py             (diagnóstico de dispositivos loopback)
 └── requirements.txt
 ```
 
@@ -18,11 +18,9 @@ audio_transcriber/
 - Windows 10/11
 - Python 3.12
 - Saída de áudio ativa (fones, caixas, HDMI…)
-- Na **primeira** execução: internet só para baixar o modelo Whisper. Depois o app é 100% offline.
+- Visual C++ Redistributable x64 (o `ctranslate2` precisa)
 
 ## Instalação
-
-No PowerShell, dentro desta pasta:
 
 ```powershell
 py -3.12 -m venv .venv
@@ -32,37 +30,44 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Se `py -3.12` não existir, use `python` desde que `python --version` seja 3.12.
+`PyAudioWPatch` vem com **wheels pré-compilados** — não precisa de compilador C++ só para o loopback.
+
+Diagnóstico bruto (opcional):
+
+```powershell
+python -m pyaudiowpatch
+```
 
 ## Uso
 
-1. Abra o Voxa.
-2. Idioma padrão: **pt**. Troque se precisar (en, es, fr, de, it ou auto).
-3. Modelo: `tiny` (mais rápido), `base` (padrão), `small` (mais preciso, mais lento).
-4. Clique em **Iniciar**. Na primeira vez o modelo é carregado.
-5. Reproduza qualquer áudio no Windows (YouTube, reunião, filme).
-6. O texto aparece com horário. **Salvar** gera um `.txt` UTF-8.
+1. **Diagnosticar** — lista só dispositivos **loopback**, nunca o microfone. A taxa nativa (quase sempre 48000 Hz) aparece no seletor.
+2. Idioma padrão **pt**. Modelo `base` (ou `tiny` / `small`).
+3. **Iniciar**. Primeira vez baixa o modelo; as seguintes são 100% locais.
+4. Reproduza YouTube, reunião, filme. O app captura o playback, não o mic.
+5. Latência esperada: **chunk 6 s + inferência** (tipicamente 8–14 s no total em CPU).
+6. **Parar** grava um `.txt` UTF-8. **Salvar** escolhe o caminho.
 
-Se o áudio do sistema parar ou o dispositivo cair, o app **não fecha**. A barra de status mostra o erro e você clica em Iniciar de novo.
+Se o áudio cair ou o loopback sumir, a janela **não fecha** — a barra de status avisa.
 
-## Como funciona
+## Pipeline
 
-| Peça | Papel |
-| --- | --- |
-| `audio_capture.py` | Abre o dispositivo de **saída** WASAPI em modo loopback, segmenta por silêncio (~0,8 s) ou no máximo 5 s |
-| `transcriber.py` | `WhisperModel` em CPU `int8` (ou CUDA `float16` se houver GPU) |
-| `main.py` | Tkinter na thread da UI; captura e whisper em threads; filas para não travar a janela |
-| `utils.py` | Mono + resample 16 kHz, timestamps, gravação do `.txt` |
+1. Diagnóstico `get_loopback_device_info_generator()` (PyAudioWPatch)
+2. Captura na **taxa nativa** (ex.: 48000 Hz estéreo)
+3. Downmix mono + `scipy.signal.resample` → **16000 Hz**
+4. Chunk **6 s**, hop **4,5 s**, overlap **1,5 s**
+5. `faster-whisper` `word_timestamps=True`, `compute_type="int8"`, `device="auto"`
+6. Dedup: descarta palavras cujo `start` cai na janela já coberta pelo chunk anterior (não compara texto)
+7. UI via `queue` + `root.after` — Whisper nunca roda na thread do tkinter
 
-O callback do PortAudio só enfileira blocos. Whisper nunca roda na thread da interface.
+## Dependências
 
-## Observações
-
-- Loopback WASAPI **não existe no Linux/macOS**. Este repositório é para Windows.
-- Apps em modo exclusivo (alguns jogos e DAWs) podem bloquear o loopback. Feche-os ou desative o modo exclusivo no painel de som.
-- CPU fraca: use o modelo `tiny`.
-- Visual C++ Redistributable (x64) pode ser necessário para o `ctranslate2`.
+```
+PyAudioWPatch==0.2.12.8
+numpy==2.0.2
+scipy==1.14.1
+faster-whisper==1.1.1
+```
 
 ## Licença
 
-Uso livre neste repositório. Modelos Whisper seguem a licença original da OpenAI / Systran.
+MIT. Modelos Whisper seguem a licença original da OpenAI / Systran.

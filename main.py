@@ -1,4 +1,4 @@
-"""Voxa — transcritor de áudio de sistema (WASAPI loopback + faster-whisper)."""
+"""Voxa — transcritor de áudio de sistema (PyAudioWPatch loopback + faster-whisper)."""
 
 from __future__ import annotations
 
@@ -11,9 +11,27 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from audio_capture import CaptureError, LoopbackCapture
-from transcriber import SUPPORTED_LANGUAGES, SUPPORTED_MODELS, LocalTranscriber, TranscribeError
-from utils import format_elapsed, format_line, now_clock, save_transcript
+from audio_capture import CaptureError, capture_loop
+from transcriber import (
+    SUPPORTED_LANGUAGES,
+    SUPPORTED_MODELS,
+    Transcriber,
+    TranscribeError,
+    dedupe_by_time,
+    join_words,
+)
+from utils import (
+    CHUNK_SECONDS,
+    OVERLAP_SECONDS,
+    DeviceError,
+    LoopbackDevice,
+    default_loopback_device,
+    format_elapsed,
+    format_line,
+    list_loopback_devices,
+    now_clock,
+    save_transcript,
+)
 
 APP_TITLE = "Voxa  ·  Transcritor de áudio de sistema"
 POLL_MS = 80
@@ -33,33 +51,25 @@ class TranscriberApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("860x620")
-        self.minsize(720, 520)
+        self.geometry("920x640")
+        self.minsize(760, 540)
         self.configure(bg=BG)
 
         self._events: queue.Queue[tuple] = queue.Queue()
-        self._audio_q: queue.Queue = queue.Queue(maxsize=8)
+        self._audio_q: queue.Queue[tuple] = queue.Queue(maxsize=3)
         self._running = False
         self._started_at = 0.0
         self._lines: list[str] = []
         self._busy_model = False
+        self._stop_event = threading.Event()
+        self._devices: list[LoopbackDevice] = []
 
-        self.transcriber = LocalTranscriber(model_size="base", language="pt")
-        self.capture = LoopbackCapture(
-            on_segment=self._on_segment,
-            on_error=self._on_capture_error,
-            on_level=lambda rms: self._events.put(("level", rms)),
-            on_device=lambda label: self._events.put(("device", label)),
-        )
+        self.transcriber = Transcriber(model_size="base", language="pt")
 
         self._build_style()
         self._build_ui()
-        self._worker = threading.Thread(
-            target=self._transcribe_loop,
-            name="whisper-worker",
-            daemon=True,
-        )
-        self._worker.start()
+        self._refresh_devices()
+        threading.Thread(target=self._transcribe_loop, name="whisper-worker", daemon=True).start()
         self.after(POLL_MS, self._drain_events)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self._tick_elapsed()
@@ -115,35 +125,42 @@ class TranscriberApp(tk.Tk):
         ttk.Label(header, text="Voxa", font=("Segoe UI Semibold", 22)).pack(side=tk.LEFT)
         ttk.Label(
             header,
-            text="  captura o que o Windows está tocando, transcreve localmente",
+            text="  loopback WASAPI · 16 kHz · offline depois do 1º download",
             style="Muted.TLabel",
         ).pack(side=tk.LEFT, pady=(8, 0))
 
         controls = ttk.Frame(outer)
-        controls.pack(fill=tk.X, pady=(16, 10))
+        controls.pack(fill=tk.X, pady=(16, 8))
 
         self.btn_start = ttk.Button(controls, text="Iniciar", style="Accent.TButton", command=self._on_start)
         self.btn_start.pack(side=tk.LEFT)
         self.btn_stop = ttk.Button(
             controls, text="Parar", style="Ghost.TButton", command=self._on_stop, state=tk.DISABLED
         )
-        self.btn_stop.pack(side=tk.LEFT, padx=(8, 18))
+        self.btn_stop.pack(side=tk.LEFT, padx=(8, 12))
+        ttk.Button(controls, text="Diagnosticar", style="Ghost.TButton", command=self._refresh_devices).pack(
+            side=tk.LEFT
+        )
 
-        ttk.Label(controls, text="Idioma", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        row2 = ttk.Frame(outer)
+        row2.pack(fill=tk.X, pady=(0, 8))
+
+        ttk.Label(row2, text="Loopback", style="Muted.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+        self.cmb_device = ttk.Combobox(row2, state="readonly", width=42)
+        self.cmb_device.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        ttk.Label(row2, text="Idioma", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 6))
         lang_values = [f"{code}  —  {label}" for code, label in SUPPORTED_LANGUAGES.items()]
-        self.cmb_lang = ttk.Combobox(controls, state="readonly", width=26, values=lang_values)
+        self.cmb_lang = ttk.Combobox(row2, state="readonly", width=22, values=lang_values)
         self.cmb_lang.set("pt  —  Português")
         self.cmb_lang.pack(side=tk.LEFT)
         self.cmb_lang.bind("<<ComboboxSelected>>", self._on_language_change)
 
-        ttk.Label(controls, text="Modelo", style="Muted.TLabel").pack(side=tk.LEFT, padx=(16, 6))
-        self.cmb_model = ttk.Combobox(controls, state="readonly", width=10, values=list(SUPPORTED_MODELS))
+        ttk.Label(row2, text="Modelo", style="Muted.TLabel").pack(side=tk.LEFT, padx=(12, 6))
+        self.cmb_model = ttk.Combobox(row2, state="readonly", width=8, values=list(SUPPORTED_MODELS))
         self.cmb_model.set("base")
         self.cmb_model.pack(side=tk.LEFT)
         self.cmb_model.bind("<<ComboboxSelected>>", self._on_model_change)
-
-        self.device_var = tk.StringVar(value="Dispositivo: aguardando início")
-        ttk.Label(outer, textvariable=self.device_var, style="Muted.TLabel").pack(anchor=tk.W, pady=(0, 8))
 
         meter_row = ttk.Frame(outer)
         meter_row.pack(fill=tk.X, pady=(0, 10))
@@ -151,6 +168,11 @@ class TranscriberApp(tk.Tk):
         self.level = tk.Canvas(meter_row, width=220, height=10, bg=SURFACE_2, highlightthickness=0)
         self.level.pack(side=tk.LEFT)
         self._level_bar = self.level.create_rectangle(0, 0, 0, 10, fill=LIVE, width=0)
+        ttk.Label(
+            meter_row,
+            text=f"chunk {CHUNK_SECONDS:.0f}s  ·  overlap {OVERLAP_SECONDS}s  ·  hop {CHUNK_SECONDS - OVERLAP_SECONDS}s",
+            style="Muted.TLabel",
+        ).pack(side=tk.LEFT, padx=(14, 0))
 
         card = tk.Frame(outer, bg=SURFACE, highlightbackground=LINE, highlightthickness=1)
         card.pack(fill=tk.BOTH, expand=True)
@@ -177,14 +199,14 @@ class TranscriberApp(tk.Tk):
         self.text.tag_configure("placeholder", foreground=MUTED)
 
         self._set_placeholder(
-            "Clique em Iniciar para capturar o áudio do sistema.\n"
-            "Reproduza um vídeo, uma reunião ou qualquer som no Windows.\n"
-            "A transcrição aparece aqui, com horário, sem sair do computador."
+            "1. Clique em Diagnosticar e escolha o loopback (não o microfone).\n"
+            "2. Iniciar. Reproduza um vídeo — o app captura o que o Windows está tocando.\n"
+            "3. Áudio nativo → mono → 16 kHz → faster-whisper. Dedup por timestamp de palavra."
         )
 
         footer = ttk.Frame(outer)
         footer.pack(fill=tk.X, pady=(12, 0))
-        self.status_var = tk.StringVar(value="Pronto  ·  offline")
+        self.status_var = tk.StringVar(value="Pronto  ·  offline após o 1º download do modelo")
         self.elapsed_var = tk.StringVar(value="00:00:00")
         self.status_label = ttk.Label(footer, textvariable=self.status_var)
         self.status_label.pack(side=tk.LEFT)
@@ -198,14 +220,46 @@ class TranscriberApp(tk.Tk):
             side=tk.RIGHT, padx=(0, 8)
         )
 
+    def _refresh_devices(self) -> None:
+        try:
+            self._devices = list_loopback_devices()
+            default = default_loopback_device(self._devices)
+        except DeviceError as exc:
+            self._devices = []
+            self.cmb_device.set("")
+            self.cmb_device.configure(values=[])
+            self._set_status(str(exc), error=True)
+            return
+
+        labels = [device.label for device in self._devices]
+        self.cmb_device.configure(values=labels)
+        self.cmb_device.set(default.label)
+        self._set_status(f"{len(self._devices)} loopback(s) · padrão: {default.name}")
+
+    def _selected_device(self) -> LoopbackDevice | None:
+        label = self.cmb_device.get()
+        for device in self._devices:
+            if device.label == label:
+                return device
+        return self._devices[0] if self._devices else None
+
     def _on_start(self) -> None:
         if self._running or self._busy_model:
             return
+        device = self._selected_device()
+        if device is None:
+            self._refresh_devices()
+            device = self._selected_device()
+        if device is None:
+            self._set_status("Nenhum loopback disponível. Clique em Diagnosticar.", error=True)
+            return
+
         model = self.cmb_model.get().strip() or "base"
         language = self.cmb_lang.get().split("—")[0].strip() or "pt"
         self.transcriber.set_model_size(model)
         self.transcriber.set_language(language)
         self._busy_model = True
+        self._stop_event = threading.Event()
         self._set_buttons(active=False, starting=True)
         self._set_status("Carregando modelo…")
 
@@ -213,9 +267,20 @@ class TranscriberApp(tk.Tk):
             try:
                 self.transcriber.ensure_loaded(on_status=lambda msg: self._events.put(("status", msg)))
                 self._running = True
-                self.capture.start()
-                self._events.put(("started", None))
-            except (CaptureError, TranscribeError) as exc:
+                threading.Thread(
+                    target=capture_loop,
+                    kwargs={
+                        "device": device,
+                        "stop_event": self._stop_event,
+                        "on_chunk": self._on_chunk,
+                        "on_error": lambda msg: self._events.put(("error", msg)),
+                        "on_level": lambda rms: self._events.put(("level", rms)),
+                    },
+                    name="loopback-capture",
+                    daemon=True,
+                ).start()
+                self._events.put(("started", device.label))
+            except (CaptureError, DeviceError, TranscribeError) as exc:
                 self._running = False
                 self._events.put(("error", str(exc)))
             except Exception as exc:
@@ -228,13 +293,16 @@ class TranscriberApp(tk.Tk):
 
     def _on_stop(self) -> None:
         self._running = False
-        try:
-            self.capture.stop()
-        except Exception:
-            pass
+        self._stop_event.set()
         self._set_buttons(active=False)
         self._set_status("Parado")
         self._draw_level(0.0)
+        if self._lines:
+            try:
+                saved = save_transcript("\n".join(self._lines))
+                self._set_status(f"Parado  ·  salvo em {saved}")
+            except Exception:
+                pass
 
     def _on_language_change(self, _event: object | None = None) -> None:
         code = self.cmb_lang.get().split("—")[0].strip()
@@ -291,38 +359,33 @@ class TranscriberApp(tk.Tk):
 
     def _on_close(self) -> None:
         self._running = False
-        try:
-            self.capture.stop()
-        except Exception:
-            pass
+        self._stop_event.set()
         self.destroy()
 
-    def _on_segment(self, audio) -> None:
-        if not self._running:
+    def _on_chunk(self, audio, is_first: bool, overlap: float) -> None:
+        if not self._running and not self._busy_model:
             return
+        item = (audio, is_first, overlap)
         try:
-            self._audio_q.put_nowait(audio)
-            self._events.put(("status", "Transcrevendo…"))
+            self._audio_q.put_nowait(item)
         except queue.Full:
             try:
                 self._audio_q.get_nowait()
             except queue.Empty:
                 pass
             try:
-                self._audio_q.put_nowait(audio)
+                self._audio_q.put_nowait(item)
             except queue.Full:
                 pass
-
-    def _on_capture_error(self, message: str) -> None:
-        self._events.put(("error", message))
+        self._events.put(("status", "Transcrevendo…"))
 
     def _transcribe_loop(self) -> None:
         while True:
-            audio = self._audio_q.get()
-            if audio is None:
-                return
+            audio, is_first, overlap = self._audio_q.get()
             try:
-                text = self.transcriber.transcribe(audio)
+                result = self.transcriber.transcribe(audio)
+                words = dedupe_by_time(result.words, is_first_chunk=is_first, overlap_seconds=overlap)
+                text = join_words(words)
                 if text:
                     self._events.put(("line", format_line(now_clock(), text)))
                 elif self._running:
@@ -339,19 +402,19 @@ class TranscriberApp(tk.Tk):
                 if kind == "line":
                     self._append_line(str(payload))
                     if self._running:
-                        self._set_status("Capturando áudio do sistema")
+                        self._set_status("Capturando áudio do sistema  ·  latência ≈ 8–14 s")
                 elif kind == "status":
                     self._set_status(str(payload))
-                elif kind == "device":
-                    self.device_var.set(f"Dispositivo: {payload}")
                 elif kind == "level":
                     self._draw_level(float(payload))
                 elif kind == "started":
                     self._running = True
                     self._started_at = time.monotonic()
                     self._set_buttons(active=True)
-                    runtime = f"{self.transcriber.device}/{self.transcriber.compute_type}"
-                    self._set_status(f"Capturando áudio do sistema  ·  {runtime}")
+                    cache = "cache local" if self.transcriber.from_local_cache else "1º download"
+                    self._set_status(
+                        f"Capturando {payload}  ·  {self.transcriber.device}/{self.transcriber.compute_type}  ·  {cache}"
+                    )
                 elif kind == "boot_done":
                     self._busy_model = False
                     if not self._running:
@@ -359,10 +422,7 @@ class TranscriberApp(tk.Tk):
                 elif kind == "error":
                     self._running = False
                     self._busy_model = False
-                    try:
-                        self.capture.stop()
-                    except Exception:
-                        pass
+                    self._stop_event.set()
                     self._set_buttons(active=False)
                     self._draw_level(0.0)
                     self._set_status(str(payload), error=True)
@@ -380,10 +440,12 @@ class TranscriberApp(tk.Tk):
             self.btn_start.configure(state=tk.DISABLED)
             self.btn_stop.configure(state=tk.DISABLED)
             self.cmb_model.configure(state="disabled")
+            self.cmb_device.configure(state="disabled")
             return
         self.btn_start.configure(state=tk.DISABLED if active else tk.NORMAL)
         self.btn_stop.configure(state=tk.NORMAL if active else tk.DISABLED)
         self.cmb_model.configure(state="disabled" if active else "readonly")
+        self.cmb_device.configure(state="disabled" if active else "readonly")
 
     def _set_status(self, message: str, error: bool = False) -> None:
         self.status_var.set(message)
