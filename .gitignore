@@ -9,3 +9,6 @@ transcripts/
 .idea/
 .vscode/
 *.egg-info/
+
+# Logs
+*.log
