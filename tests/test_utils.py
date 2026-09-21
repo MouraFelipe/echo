@@ -12,9 +12,11 @@ from utils import (
     default_loopback_device,
     format_elapsed,
     format_line,
+    format_srt_timestamp,
     int16_to_float32,
     list_loopback_devices,
     resample_to_whisper,
+    save_srt,
     save_transcript,
     DeviceError,
 )
@@ -177,3 +179,37 @@ class TestSaveTranscript:
 
     def test_app_dir_not_frozen(self):
         assert app_dir().is_dir()
+
+
+class TestSrt:
+    def test_timestamp_zero(self):
+        assert format_srt_timestamp(0) == "00:00:00,000"
+
+    def test_timestamp_ms_and_hours(self):
+        assert format_srt_timestamp(3661.234) == "01:01:01,234"
+
+    def test_negative_clamped(self):
+        assert format_srt_timestamp(-1) == "00:00:00,000"
+
+    def test_writes_cues_until_next(self, tmp_path: Path):
+        path = tmp_path / "out.srt"
+        save_srt(
+            [
+                (1.0, "Olá mundo"),
+                (5.5, "Ação na reunião"),
+            ],
+            path,
+        )
+        body = path.read_text(encoding="utf-8")
+        assert body.startswith("1\n00:00:01,000 --> 00:00:05,500\nOlá mundo\n")
+        assert "2\n00:00:05,500 --> 00:00:09,500\nAção na reunião\n" in body
+        assert "ação" in body.lower()
+
+    def test_skips_empty_text(self, tmp_path: Path):
+        path = tmp_path / "out.srt"
+        save_srt([(0.0, "  "), (2.0, "fala")], path)
+        body = path.read_text(encoding="utf-8")
+        assert body.startswith("1\n")
+        assert "fala" in body
+        assert body.count("-->") == 1
+

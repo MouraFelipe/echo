@@ -43,6 +43,14 @@ def format_elapsed(seconds: float) -> str:
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
+def format_srt_timestamp(seconds: float) -> str:
+    total_ms = max(0, int(round(float(seconds) * 1000)))
+    hours, rem = divmod(total_ms, 3_600_000)
+    minutes, rem = divmod(rem, 60_000)
+    secs, ms = divmod(rem, 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{ms:03d}"
+
+
 def format_line(clock: str, text: str) -> str:
     return f"[{clock}] {text.strip()}"
 
@@ -159,4 +167,27 @@ def save_transcript(text: str, path: Path | None = None) -> Path:
         path = app_dir() / "transcripts" / f"transcricao_{stamp}.txt"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text.rstrip() + "\n", encoding="utf-8-sig")
+    return path
+
+
+def save_srt(cues: list[tuple[float, str]], path: Path) -> Path:
+    """Cues `(início em segundos, texto)`. Cada bloco vai até o próximo ou +4 s."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    blocks: list[str] = []
+    for index, (start, text) in enumerate(cues):
+        body = text.strip()
+        if not body:
+            continue
+        start = max(0.0, float(start))
+        if index + 1 < len(cues):
+            end = max(start + 0.5, float(cues[index + 1][0]))
+        else:
+            end = start + 4.0
+        blocks.append(
+            f"{len(blocks) + 1}\n"
+            f"{format_srt_timestamp(start)} --> {format_srt_timestamp(end)}\n"
+            f"{body}\n"
+        )
+    path.write_text("\n".join(blocks) + ("\n" if blocks else ""), encoding="utf-8")
     return path
