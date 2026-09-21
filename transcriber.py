@@ -10,6 +10,10 @@ import numpy as np
 
 from utils import OVERLAP_SECONDS, WHISPER_SR
 
+# Pico abaixo disso é ruído de loopback (ventilador, DC offset), não fala.
+# Amplificar isso até 0.95 faz o Whisper alucinar em silêncio.
+MIN_SPEECH_PEAK = 0.02
+
 SUPPORTED_LANGUAGES: dict[str, str] = {
     "pt": "Português",
     "en": "English",
@@ -130,8 +134,9 @@ class Transcriber:
             return TranscriptChunk("", [], self.from_local_cache)
 
         peak = float(np.max(np.abs(samples)))
-        if peak > 1e-6:
-            samples = (samples * (0.95 / peak)).astype(np.float32)
+        if peak < MIN_SPEECH_PEAK:
+            return TranscriptChunk("", [], self.from_local_cache)
+        samples = (samples * (0.95 / peak)).astype(np.float32)
 
         language = None if self.language == "auto" else self.language
         with self._lock:

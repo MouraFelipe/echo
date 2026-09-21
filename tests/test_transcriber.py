@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from transcriber import (
+    MIN_SPEECH_PEAK,
     SUPPORTED_LANGUAGES,
     SUPPORTED_MODELS,
     TranscribeError,
@@ -110,14 +111,15 @@ class TestTranscribeBehavior:
         heard = fake.heard[0]
         assert float(np.max(np.abs(heard))) == pytest.approx(0.95, rel=1e-5)
 
-    def test_near_silence_is_amplified_current_behavior(self):
-        """Possível defeito: pico 1e-5 ainda passa do corte 1e-6 e vira quase 0.95."""
+    def test_near_silence_skips_model(self):
         t = Transcriber()
         fake = FakeWhisper()
         t._model = fake
-        audio = np.full(4000, 1e-5, dtype=np.float32)
-        t.transcribe(audio)
-        assert float(np.max(np.abs(fake.heard[0]))) == pytest.approx(0.95, rel=1e-4)
+        audio = np.full(4000, MIN_SPEECH_PEAK * 0.4, dtype=np.float32)
+        out = t.transcribe(audio)
+        assert out.text == ""
+        assert out.words == []
+        assert fake.heard == []
 
     def test_auto_language_sends_none(self):
         t = Transcriber(language="auto")
