@@ -15,4 +15,4 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 appdata = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-os.environ.setdefault("HF_HOME", os.path.join(appdata, "Voxa", "hf"))
+os.environ.setdefault("HF_HOME", os.path.join(appdata, "Echo", "hf"))

@@ -1,4 +1,4 @@
-"""Voxa — transcritor de áudio de sistema (PyAudioWPatch loopback + faster-whisper)."""
+"""Echo — transcritor de áudio de sistema (PyAudioWPatch loopback + faster-whisper)."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from utils import (
     save_transcript,
 )
 
-APP_TITLE = "Voxa  ·  Transcritor de áudio de sistema"
+APP_TITLE = "Echo  ·  Transcritor de áudio de sistema"
 POLL_MS = 80
 
 BG = "#0b0c0b"
@@ -123,7 +123,7 @@ class TranscriberApp(tk.Tk):
 
         header = ttk.Frame(outer)
         header.pack(fill=tk.X)
-        ttk.Label(header, text="Voxa", font=("Segoe UI Semibold", 22)).pack(side=tk.LEFT)
+        ttk.Label(header, text="Echo", font=("Segoe UI Semibold", 22)).pack(side=tk.LEFT)
         ttk.Label(
             header,
             text="  loopback WASAPI · 16 kHz · offline depois do 1º download",
@@ -330,7 +330,7 @@ class TranscriberApp(tk.Tk):
             finally:
                 self._events.put(("boot_done", None))
 
-        threading.Thread(target=boot, name="voxa-boot", daemon=True).start()
+        threading.Thread(target=boot, name="echo-boot", daemon=True).start()
 
     def _on_stop(self) -> None:
         self._running = False
@@ -413,7 +413,7 @@ class TranscriberApp(tk.Tk):
             except Exception as exc:
                 self._events.put(("assist_error", f"Falha no assistente: {exc}"))
 
-        threading.Thread(target=worker, name="voxa-assistant", daemon=True).start()
+        threading.Thread(target=worker, name="echo-assistant", daemon=True).start()
 
     def _set_assist(self, text: str, error: bool = False) -> None:
         self.assist_text.configure(state=tk.NORMAL)

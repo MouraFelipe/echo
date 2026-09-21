@@ -186,7 +186,7 @@ def _ollama_chat(task: str, transcript: str, question: str) -> str | None:
             "messages": [
                 {
                     "role": "system",
-                    "content": "Você é o assistente do Voxa. Use apenas a transcrição. Não invente.",
+                    "content": "Você é o assistente do Echo. Use apenas a transcrição. Não invente.",
                 },
                 {"role": "user", "content": user},
             ],

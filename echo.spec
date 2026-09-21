@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller onefile — gera dist/Voxa.exe no Windows."""
+"""PyInstaller onefile — gera dist/Echo.exe no Windows."""
 
 from pathlib import Path
 
@@ -70,7 +70,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="Voxa",
+    name="Echo",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

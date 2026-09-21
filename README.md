@@ -1,4 +1,4 @@
-# Voxa — transcritor de áudio de sistema (Windows)
+# Echo — transcritor de áudio de sistema (Windows)
 
 MVP desktop que captura o que o **Windows está reproduzindo** (WASAPI loopback via **PyAudioWPatch**), reamostra para **16 kHz mono** e transcreve **localmente** com `faster-whisper`.
 
@@ -8,12 +8,12 @@ Não usa microfone. Nenhuma API de transcrição online. O único acesso à rede
 
 Não precisa instalar Python.
 
-1. Baixe **[Voxa.exe](https://github.com/MouraFelipe/audio-transcriber/releases/latest/download/Voxa.exe)**
+1. Baixe **[Echo.exe](https://github.com/MouraFelipe/audio-transcriber/releases/latest/download/Echo.exe)**
 2. Dê dois cliques. O SmartScreen pode avisar (app sem certificado) — *Mais informações → Executar mesmo assim*.
-3. Na primeira execução o modelo Whisper é baixado (~150 MB) para `%LOCALAPPDATA%\Voxa\hf`. Depois funciona offline.
+3. Na primeira execução o modelo Whisper é baixado (~150 MB) para `%LOCALAPPDATA%\Echo\hf`. Depois funciona offline.
 4. Se faltar DLL, instale o [Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 
-O GitHub Actions gera esse `.exe` a cada push em `main` (`voxa.spec` + PyInstaller onefile).
+O GitHub Actions gera esse `.exe` a cada push em `main` (`echo.spec` + PyInstaller onefile).
 
 ## Rodar do código (opcional)
 
@@ -29,8 +29,8 @@ Gerar o `.exe` localmente no Windows:
 
 ```powershell
 pip install pyinstaller==6.11.1
-pyinstaller --noconfirm --clean voxa.spec
-# sai em dist\Voxa.exe
+pyinstaller --noconfirm --clean echo.spec
+# sai em dist\Echo.exe
 ```
 
 ## Assistente (grátis)
@@ -41,7 +41,7 @@ Depois de transcrever:
 - **Tarefas** — combinados / prazos
 - **Perguntar** — responde só com base no texto
 
-No `.exe` isso é **100% local e gratuito**. Se o [Ollama](https://ollama.com) estiver aberto neste PC, o Voxa usa o modelo instalado. Senão, entra um resumidor extrativo (sem nuvem, sem chave).
+No `.exe` isso é **100% local e gratuito**. Se o [Ollama](https://ollama.com) estiver aberto neste PC, o Echo usa o modelo instalado. Senão, entra um resumidor extrativo (sem nuvem, sem chave).
 
 O preview na web usa Grok só quando você clica — não roda sozinho.
 

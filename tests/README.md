@@ -1,4 +1,4 @@
-# Testes — Voxa
+# Testes — Echo
 
 ```powershell
 py -3.12 -m pip install -r requirements-dev.txt
