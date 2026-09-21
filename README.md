@@ -8,7 +8,7 @@ Não usa microfone. Nenhuma API de transcrição online. O único acesso à rede
 
 Não precisa instalar Python.
 
-1. Baixe **[Echo.exe](https://github.com/MouraFelipe/audio-transcriber/releases/latest/download/Echo.exe)**
+1. Baixe **[Echo.exe](https://github.com/MouraFelipe/echo/releases/latest/download/Echo.exe)**
 2. Dê dois cliques. O SmartScreen pode avisar (app sem certificado) — *Mais informações → Executar mesmo assim*.
 3. Na primeira execução o modelo Whisper é baixado (~150 MB) para `%LOCALAPPDATA%\Echo\hf`. Depois funciona offline.
 4. Se faltar DLL, instale o [Visual C++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
