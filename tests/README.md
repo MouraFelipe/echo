@@ -10,7 +10,7 @@ A suíte **não** abre WASAPI nem carrega Whisper. Hardware, `.exe` e o modelo r
 
 | Arquivo | O que cobre |
 |---|---|
-| `test_utils.py` | tempo, resample 16 kHz, RMS, save UTF-8 BOM, loopback fora do Windows |
+| `test_utils.py` | tempo, resample 16 kHz, RMS, save UTF-8 BOM, `.srt`, loopback fora do Windows |
 | `test_devices.py` | diagnóstico WASAPI com fake PyAudioWPatch |
 | `test_audio_capture.py` | open/read/stop, chunk 6 s + hop 4,5 s + overlap 1,5 s |
 | `test_transcriber.py` | dedup por timestamp, join, peak-norm, idiomas/modelos |
