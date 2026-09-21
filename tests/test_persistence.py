@@ -44,13 +44,13 @@ class TestStop:
         TranscriberApp._on_stop(app)
         assert app.status == "Parado"
 
-    def test_stop_swallows_save_oserror(self, monkeypatch):
-        """Possível defeito: falha ao salvar no Parar é silenciada."""
+    def test_stop_reports_save_oserror(self, monkeypatch):
         app = harness()
         monkeypatch.setattr("main.save_transcript", lambda text: (_ for _ in ()).throw(OSError("disk")))
         TranscriberApp._on_stop(app)
         assert app._running is False
-        assert app.status == "Parado"
+        assert "não deu para salvar" in app.status
+        assert "disk" in app.status
 
 
 class TestCopyClear:

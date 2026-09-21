@@ -342,8 +342,8 @@ class TranscriberApp(tk.Tk):
             try:
                 saved = save_transcript("\n".join(self._lines))
                 self._set_status(f"Parado  ·  salvo em {saved}")
-            except Exception:
-                pass
+            except Exception as exc:
+                self._set_status(f"Parado  ·  não deu para salvar: {exc}", error=True)
 
     def _on_language_change(self, _event: object | None = None) -> None:
         code = self.cmb_lang.get().split("—")[0].strip()
