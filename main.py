@@ -31,6 +31,7 @@ from utils import (
     format_line,
     list_loopback_devices,
     now_clock,
+    save_srt,
     save_transcript,
 )
 
@@ -61,6 +62,7 @@ class TranscriberApp(tk.Tk):
         self._running = False
         self._started_at = 0.0
         self._lines: list[str] = []
+        self._cues: list[tuple[float, str]] = []
         self._busy_model = False
         self._stop_event = threading.Event()
         self._devices: list[LoopbackDevice] = []
@@ -366,6 +368,7 @@ class TranscriberApp(tk.Tk):
 
     def _on_clear(self) -> None:
         self._lines.clear()
+        self._cues.clear()
         self._set_placeholder("Transcrição limpa. Clique em Iniciar para continuar.")
 
     def _on_copy(self) -> None:
@@ -386,13 +389,21 @@ class TranscriberApp(tk.Tk):
         path = filedialog.asksaveasfilename(
             title="Salvar transcrição",
             defaultextension=".txt",
-            filetypes=[("Texto", "*.txt"), ("Todos", "*.*")],
+            filetypes=[
+                ("Texto", "*.txt"),
+                ("Legendas SubRip", "*.srt"),
+                ("Todos", "*.*"),
+            ],
             initialfile=suggested,
         )
         if not path:
             return
         try:
-            saved = save_transcript(body, Path(path))
+            dest = Path(path)
+            if dest.suffix.lower() == ".srt":
+                saved = save_srt(self._cues, dest)
+            else:
+                saved = save_transcript(body, dest)
         except Exception as exc:
             self._set_status(f"Falha ao salvar: {exc}", error=True)
             return
@@ -533,6 +544,11 @@ class TranscriberApp(tk.Tk):
             self.text.delete("1.0", tk.END)
             self.text.configure(state=tk.DISABLED)
         self._lines.append(line)
+        body = line
+        if line.startswith("[") and "] " in line:
+            body = line.split("] ", 1)[1]
+        elapsed = (time.monotonic() - self._started_at) if self._started_at else 0.0
+        self._cues.append((elapsed, body))
         self.text.configure(state=tk.NORMAL)
         stamp, _, body = line.partition("] ")
         if line.startswith("[") and body:

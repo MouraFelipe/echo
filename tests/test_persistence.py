@@ -14,6 +14,7 @@ def harness(tmp_path: Path | None = None) -> SimpleNamespace:
     app._running = True
     app._stop_event = threading.Event()
     app._lines = ["[10:00:01] Olá", "[10:00:08] Ação"]
+    app._cues = [(1.0, "Olá"), (8.0, "Ação")]
     app.status = ""
     app.level = None
     app._set_buttons = lambda **k: None
@@ -74,3 +75,20 @@ class TestCopyClear:
         app._lines = []
         TranscriberApp._on_save(app)
         assert app.status == "Nada para salvar"
+
+    def test_save_srt_uses_cues(self, tmp_path, monkeypatch):
+        app = harness()
+        dest = tmp_path / "fala.srt"
+        monkeypatch.setattr("main.filedialog.asksaveasfilename", lambda **k: str(dest))
+        TranscriberApp._on_save(app)
+        body = dest.read_text(encoding="utf-8")
+        assert "Olá" in body
+        assert "-->" in body
+        assert "salvo em" in app.status.lower() or "Salvo em" in app.status
+
+    def test_clear_also_drops_cues(self):
+        app = harness()
+        app._set_placeholder = lambda text: None
+        TranscriberApp._on_clear(app)
+        assert app._lines == []
+        assert app._cues == []
